@@ -63,13 +63,13 @@ class FruitFreshnessClassifier:
     def extract_color_features(self, image_path: str) -> np.ndarray:
         """
         Extract HSV color histogram features from an image.
-        
+
         Args:
             image_path: Path to the image file
-            
+
         Returns:
             Flattened histogram feature vector
-            
+
         Raises:
             ValueError: If image cannot be read
         """
@@ -77,20 +77,26 @@ class FruitFreshnessClassifier:
         image = cv2.imread(image_path)
         if image is None:
             raise ValueError(f"Cannot read image: {image_path}")
-        
+
         # Resize to 100x100
         image = cv2.resize(image, (100, 100))
-        
+
         # Convert BGR to HSV
         hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        
+
         # Extract 3D color histogram with 8 bins per channel
         hist = cv2.calcHist([hsv_image], [0, 1, 2], None, [8, 8, 8], [0, 180, 0, 256, 0, 256])
-        
+
         # Normalize histogram
         hist = cv2.normalize(hist, hist).flatten()
-        
-        return hist
+
+        # Add HSV color moments for better discrimination
+        h_mean, h_std = np.mean(hsv_image[:, :, 0]), np.std(hsv_image[:, :, 0])
+        s_mean, s_std = np.mean(hsv_image[:, :, 1]), np.std(hsv_image[:, :, 1])
+        v_mean, v_std = np.mean(hsv_image[:, :, 2]), np.std(hsv_image[:, :, 2])
+        color_moments = np.array([h_mean, h_std, s_mean, s_std, v_mean, v_std])
+
+        return np.hstack([hist, color_moments])
     
     def extract_texture_features(self, image_path: str) -> np.ndarray:
         """
@@ -424,13 +430,15 @@ class FruitFreshnessClassifier:
         model_dir.mkdir(exist_ok=True)
 
         models_data = {
-            "fruit_type": self.fruit_type_model,
-            "freshness": {
-                "apple": self.fruit_models["apple"],
-                "banana": self.fruit_models["banana"],
-                "orange": self.fruit_models["orange"]
+            "fruit_type": {
+                "pipeline": self.fruit_type_model,
+                "label_map": self.fruit_type_label_map
             },
-            "fruit_type_label_map": self.fruit_type_label_map,
+            "freshness": {
+                "apple": {"pipeline": self.fruit_models["apple"]},
+                "banana": {"pipeline": self.fruit_models["banana"]},
+                "orange": {"pipeline": self.fruit_models["orange"]}
+            },
             "freshness_label_map": self.freshness_label_map
         }
 
@@ -463,22 +471,22 @@ class FruitFreshnessClassifier:
         models_data = joblib.load(model_path)
 
         # Load fruit type model (pipeline)
-        self.fruit_type_model = models_data["fruit_type"]
-        self.fruit_type_label_map = models_data["fruit_type_label_map"]
+        self.fruit_type_model = models_data["fruit_type"]["pipeline"]
+        self.fruit_type_label_map = models_data["fruit_type"]["label_map"]
 
         # Load freshness models (pipelines)
-        self.fruit_models["apple"] = models_data["freshness"]["apple"]
-        self.fruit_models["banana"] = models_data["freshness"]["banana"]
-        self.fruit_models["orange"] = models_data["freshness"]["orange"]
+        self.fruit_models["apple"] = models_data["freshness"]["apple"]["pipeline"]
+        self.fruit_models["banana"] = models_data["freshness"]["banana"]["pipeline"]
+        self.fruit_models["orange"] = models_data["freshness"]["orange"]["pipeline"]
 
         self.freshness_label_map = models_data["freshness_label_map"]
 
         # Validate pipelines have predict_proba
         if not hasattr(self.fruit_type_model, 'predict_proba'):
-            raise ValueError("Fruit type model missing predict_proba")
+            raise RuntimeError("Fruit type pipeline missing predict_proba method")
         for fruit in self.fruit_models:
             if not hasattr(self.fruit_models[fruit], 'predict_proba'):
-                raise ValueError(f"{fruit} model missing predict_proba")
+                raise RuntimeError(f"{fruit} pipeline missing predict_proba method")
 
         self.is_trained = True
         print(f"All models loaded from: {model_path}")
@@ -508,10 +516,9 @@ class FruitFreshnessClassifier:
                 print("cv2.imread() failed")
             else:
                 print(f"cv2.imread() success, shape: {img_check.shape}")
-            print(f"Feature fingerprint:")
-            print(f"  First 8 values: {feature[0][:8]}")
-            print(f"  Min: {feature.min():.6f}, Max: {feature.max():.6f}, Mean: {feature.mean():.6f}, Std: {feature.std():.6f}")
-            print(f"  L2 norm: {np.linalg.norm(feature):.6f}")
+            print(f"Raw features (first 12): {feature[0][:12]}")
+            print(f"Raw feature stats: min={feature.min():.6f}, max={feature.max():.6f}, mean={feature.mean():.6f}, std={feature.std():.6f}, L2={np.linalg.norm(feature):.6f}")
+            print(f"Pipeline steps: {[step for step in self.fruit_type_model.named_steps.keys()]}")
 
         # Safety check: feature dimension
         expected_features = self.fruit_type_model.named_steps["scaler"].n_features_in_
@@ -661,29 +668,80 @@ Examples:
                 os.path.expanduser("~/Desktop/orange.jpg")
             ]
 
-            features_list = []
+            raw_features_list = []
+            transformed_features_list = []
+            fruit_type_probas = []
+            freshness_probas = []
+
             for img in images:
                 print(f"\n=== Diagnostics for {img} ===")
                 try:
-                    predicted_class, freshness_percentage = classifier.predict(img, debug=True)
+                    # Extract raw features
+                    raw_feature = classifier.extract_features(img)
+                    raw_feature = raw_feature.reshape(1, -1)
+                    print(f"Raw feature stats: min={raw_feature.min():.6f}, max={raw_feature.max():.6f}, mean={raw_feature.mean():.6f}, std={raw_feature.std():.6f}, L2={np.linalg.norm(raw_feature):.6f}")
+
+                    # Get transformed features (post-scaler)
+                    transformed_feature = classifier.fruit_type_model[:-1].transform(raw_feature)
+                    print(f"Transformed feature stats: min={transformed_feature.min():.6f}, max={transformed_feature.max():.6f}, mean={transformed_feature.mean():.6f}, std={transformed_feature.std():.6f}, L2={np.linalg.norm(transformed_feature):.6f}")
+
+                    # Get predictions
+                    predicted_class, freshness_percentage = classifier.predict(img, debug=False)
                     print(f"Predicted: {predicted_class}")
                     print(f"Freshness: {freshness_percentage:.2f} %")
-                    # For simplicity, extract feature again for comparison
-                    feature = classifier.extract_features(img)
-                    features_list.append((img, feature))
+
+                    # Store for comparison
+                    raw_features_list.append((img, raw_feature.flatten()))
+                    transformed_features_list.append((img, transformed_feature.flatten()))
+
+                    # Get probabilities for comparison
+                    ft_pred = classifier.fruit_type_model.predict_proba(raw_feature)[0]
+                    fruit_type_probas.append(ft_pred)
+
+                    # Determine fruit type
+                    ft_class = classifier.fruit_type_model.predict(raw_feature)[0]
+                    fruit_names = {v: k for k, v in classifier.fruit_type_label_map.items()}
+                    fruit_type = fruit_names[ft_class]
+
+                    fresh_pred = classifier.fruit_models[fruit_type].predict_proba(raw_feature)[0]
+                    freshness_probas.append(fresh_pred)
+
                 except Exception as e:
                     print(f"Error predicting {img}: {e}")
 
-            # Compare features
-            print(f"\n=== Feature Vector Comparisons ===")
-            for i in range(len(features_list)):
-                for j in range(i+1, len(features_list)):
-                    img1, feat1 = features_list[i]
-                    img2, feat2 = features_list[j]
+            # Compare raw features
+            print(f"\n=== Raw Feature Vector Comparisons ===")
+            for i in range(len(raw_features_list)):
+                for j in range(i+1, len(raw_features_list)):
+                    img1, feat1 = raw_features_list[i]
+                    img2, feat2 = raw_features_list[j]
                     l2_dist = np.linalg.norm(feat1 - feat2)
                     print(f"L2 distance between {os.path.basename(img1)} and {os.path.basename(img2)}: {l2_dist:.6f}")
                     if l2_dist < 1e-6:
-                        print("WARNING: Feature vectors are nearly identical! Possible bug in feature extraction.")
+                        print("WARNING: Raw feature vectors are nearly identical! Possible bug in feature extraction.")
+
+            # Compare transformed features
+            print(f"\n=== Transformed Feature Vector Comparisons ===")
+            for i in range(len(transformed_features_list)):
+                for j in range(i+1, len(transformed_features_list)):
+                    img1, feat1 = transformed_features_list[i]
+                    img2, feat2 = transformed_features_list[j]
+                    l2_dist = np.linalg.norm(feat1 - feat2)
+                    print(f"L2 distance between {os.path.basename(img1)} and {os.path.basename(img2)}: {l2_dist:.6f}")
+                    if l2_dist < 1e-6:
+                        print("WARNING: Transformed feature vectors are nearly identical! Possible scaler issue.")
+
+            # Check if fruit type probas are identical
+            if len(set(tuple(p) for p in fruit_type_probas)) == 1:
+                print("WARNING: All fruit type predict_proba outputs are identical!")
+            else:
+                print("Fruit type predict_proba vary correctly.")
+
+            # Check if freshness probas are identical
+            if len(set(tuple(p) for p in freshness_probas)) == 1:
+                print("WARNING: All freshness predict_proba outputs are identical!")
+            else:
+                print("Freshness predict_proba vary correctly.")
     
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
