@@ -44,7 +44,7 @@ models/*.pkl
 # =========================
 # Dataset (IMPORTANT)
 # =========================
-original_data_set/
+dataset/
 
 # =========================
 # Git metadata safety

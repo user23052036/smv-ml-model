@@ -1,0 +1,4 @@
+All models loaded from: ./models/svm_freshness.joblib
+Fruit type: banana
+Predicted: rotten
+Freshness: 11.60 %

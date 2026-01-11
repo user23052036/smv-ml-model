@@ -22,6 +22,7 @@ import cv2
 from skimage.feature import local_binary_pattern
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import joblib
@@ -32,17 +33,30 @@ class FruitFreshnessClassifier:
     
     def __init__(self):
         """Initialize the classifier with default parameters."""
-        self.fruit_type_model = SVC(kernel="rbf", C=1.0, gamma="scale", probability=True)
-        self.fruit_type_scaler = StandardScaler()
+        self.fruit_type_model = Pipeline([
+            ("scaler", StandardScaler()),
+            ("svc", SVC(kernel="rbf", C=1.0, gamma="scale", probability=True))
+        ])
 
         self.fruit_models = {
-            "apple":  {"model": SVC(kernel="rbf", C=1.0, gamma="scale", probability=True), "scaler": StandardScaler()},
-            "banana": {"model": SVC(kernel="rbf", C=1.0, gamma="scale", probability=True), "scaler": StandardScaler()},
-            "orange": {"model": SVC(kernel="rbf", C=1.0, gamma="scale", probability=True), "scaler": StandardScaler()}
+            "apple": Pipeline([
+                ("scaler", StandardScaler()),
+                ("svc", SVC(kernel="rbf", C=1.0, gamma="scale", probability=True))
+            ]),
+            "banana": Pipeline([
+                ("scaler", StandardScaler()),
+                ("svc", SVC(kernel="rbf", C=1.0, gamma="scale", probability=True))
+            ]),
+            "orange": Pipeline([
+                ("scaler", StandardScaler()),
+                ("svc", SVC(kernel="rbf", C=1.0, gamma="scale", probability=True))
+            ])
         }
 
         self.fruit_type_label_map = {"apple": 0, "banana": 1, "orange": 2}
         self.freshness_label_map = {"rotten": 0, "fresh": 1}
+
+        self.COLOR_CORRECTION_ENABLED = {"banana": True}
 
         self.is_trained = False
     
@@ -176,12 +190,12 @@ class FruitFreshnessClassifier:
         else:
             return -1
 
-    def analyze_banana_color(self, image_path: str) -> Tuple[float, float]:
+    def analyze_color_distribution(self, image_path: str) -> Tuple[float, float]:
         """
-        Analyze banana image color distribution for relabeling.
+        Analyze image color distribution for relabeling.
 
         Args:
-            image_path: Path to the banana image
+            image_path: Path to the image
 
         Returns:
             Tuple of (green_percentage, yellow_percentage)
@@ -214,28 +228,29 @@ class FruitFreshnessClassifier:
 
         return green_percentage, yellow_percentage
 
-    def relabel_banana_image(self, image_path: str, original_label: int) -> int:
+    def apply_color_based_label_correction(self, image_path: str, fruit_type: str, original_label: int) -> int:
         """
-        Apply programmatic relabeling for banana images based on color analysis.
+        Apply color-based label correction if enabled for the fruit type.
 
         Args:
-            image_path: Path to the banana image
+            image_path: Path to the image
+            fruit_type: Type of fruit ("apple", "banana", "orange")
             original_label: Original label from folder name (0=rotten, 1=fresh)
 
         Returns:
-            Relabeled value: 0=rotten, 1=fresh
+            Corrected label: 0=rotten, 1=fresh
         """
-        green_percentage, yellow_percentage = self.analyze_banana_color(image_path)
+        if not self.COLOR_CORRECTION_ENABLED.get(fruit_type, False):
+            return original_label
+
+        green_percentage, yellow_percentage = self.analyze_color_distribution(image_path)
 
         # Apply relabeling rules
         if green_percentage > 15:
-            # If significant green pixels, label as fresh
             return 1
         elif yellow_percentage > 40 and green_percentage < 5:
-            # If mostly yellow with minimal green, treat as fresh (overripe but edible)
             return 1
         else:
-            # Otherwise, label as rotten
             return 0
     
     def load_dataset(self, dataset_root: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str], Dict[str, int], Dict[str, int]]:
@@ -266,8 +281,12 @@ class FruitFreshnessClassifier:
         if not dataset_path.exists():
             raise ValueError(f"Dataset directory not found: {dataset_root}")
 
-        # Iterate through all subdirectories
-        for folder_path in dataset_path.iterdir():
+        train_path = dataset_path / "train"
+        if not train_path.exists():
+            raise ValueError(f"Training directory not found: {train_path}")
+
+        # Iterate through all subdirectories in train/
+        for folder_path in train_path.iterdir():
             if not folder_path.is_dir():
                 continue
 
@@ -341,19 +360,15 @@ class FruitFreshnessClassifier:
         X_train_ft, X_test_ft, y_train_ft, y_test_ft = train_test_split(
             X, y_fruit_type, test_size=0.2, stratify=y_fruit_type, random_state=42
         )
-        
+
         print(f"Training samples: {len(X_train_ft)}")
         print(f"Test samples: {len(X_test_ft)}")
-        
-        # Scale features for fruit type classification
-        X_train_ft_scaled = self.fruit_type_scaler.fit_transform(X_train_ft)
-        X_test_ft_scaled = self.fruit_type_scaler.transform(X_test_ft)
-        
-        # Train fruit type model
-        self.fruit_type_model.fit(X_train_ft_scaled, y_train_ft)
-        
+
+        # Train fruit type model (pipeline handles scaling)
+        self.fruit_type_model.fit(X_train_ft, y_train_ft)
+
         # Evaluate fruit type model
-        y_pred_ft = self.fruit_type_model.predict(X_test_ft_scaled)
+        y_pred_ft = self.fruit_type_model.predict(X_test_ft)
         fruit_type_accuracy = accuracy_score(y_test_ft, y_pred_ft)
         
         print(f"Fruit type classification accuracy: {fruit_type_accuracy:.4f} ({fruit_type_accuracy*100:.2f}%)")
@@ -364,6 +379,7 @@ class FruitFreshnessClassifier:
         print("="*50)
 
         accuracies = {}
+        correction_counts = {}
         for fruit_type in self.fruit_models.keys():
             fruit_label = self.fruit_type_label_map[fruit_type]
             mask = y_fruit_type == fruit_label
@@ -373,30 +389,29 @@ class FruitFreshnessClassifier:
                 X_fruit = X[mask]
                 y_fruit = y_freshness[mask].copy()
 
-                # Apply banana relabeling ONLY for bananas
-                if fruit_type == "banana":
-                    print("Applying programmatic banana relabeling...")
+                # Apply color-based label corrections conditionally
+                if self.COLOR_CORRECTION_ENABLED.get(fruit_type, False):
+                    print(f"Applying color-based label corrections for {fruit_type}...")
                     fruit_indices = np.where(mask)[0]
                     relabeled_count = 0
                     for i, idx in enumerate(fruit_indices):
                         image_path = image_paths[idx]
                         original_label = y_freshness[idx]
-                        new_label = self.relabel_banana_image(image_path, original_label)
+                        new_label = self.apply_color_based_label_correction(image_path, fruit_type, original_label)
                         y_fruit[i] = new_label
                         if new_label != original_label:
                             relabeled_count += 1
-                    print(f"Relabeled {relabeled_count} banana images based on color analysis")
+                    print(f"Relabeled {relabeled_count} {fruit_type} images")
+                    correction_counts[fruit_type] = relabeled_count
 
                 X_train, X_test, y_train, y_test = train_test_split(
                     X_fruit, y_fruit, test_size=0.2, stratify=y_fruit, random_state=42
                 )
 
-                X_train_scaled = self.fruit_models[fruit_type]["scaler"].fit_transform(X_train)
-                X_test_scaled = self.fruit_models[fruit_type]["scaler"].transform(X_test)
+                # Train freshness model (pipeline handles scaling)
+                self.fruit_models[fruit_type].fit(X_train, y_train)
 
-                self.fruit_models[fruit_type]["model"].fit(X_train_scaled, y_train)
-
-                y_pred = self.fruit_models[fruit_type]["model"].predict(X_test_scaled)
+                y_pred = self.fruit_models[fruit_type].predict(X_test)
                 accuracy = accuracy_score(y_test, y_pred)
                 accuracies[fruit_type] = accuracy
                 print(f"{fruit_type.capitalize()} freshness accuracy: {accuracy:.4f} ({accuracy*100:.2f}%)")
@@ -409,33 +424,27 @@ class FruitFreshnessClassifier:
         model_dir.mkdir(exist_ok=True)
 
         models_data = {
-            "fruit_type": {
-                "model": self.fruit_type_model,
-                "scaler": self.fruit_type_scaler,
-                "label_map": self.fruit_type_label_map
-            },
+            "fruit_type": self.fruit_type_model,
             "freshness": {
-                "apple": {
-                    "model": self.fruit_models["apple"]["model"],
-                    "scaler": self.fruit_models["apple"]["scaler"]
-                },
-                "banana": {
-                    "model": self.fruit_models["banana"]["model"],
-                    "scaler": self.fruit_models["banana"]["scaler"]
-                },
-                "orange": {
-                    "model": self.fruit_models["orange"]["model"],
-                    "scaler": self.fruit_models["orange"]["scaler"]
-                }
+                "apple": self.fruit_models["apple"],
+                "banana": self.fruit_models["banana"],
+                "orange": self.fruit_models["orange"]
             },
+            "fruit_type_label_map": self.fruit_type_label_map,
             "freshness_label_map": self.freshness_label_map
         }
 
         joblib.dump(models_data, model_path)
         print(f"\nAll models saved to: {model_path}")
-        
+
+        if correction_counts:
+            print("\nLabel corrections applied:")
+            for fruit, count in correction_counts.items():
+                if count > 0:
+                    print(f"  {fruit}: {count} samples")
+
         self.is_trained = True
-        
+
         return {
             "total_images": len(X),
             "fruit_type_counts": fruit_type_counts,
@@ -453,68 +462,104 @@ class FruitFreshnessClassifier:
 
         models_data = joblib.load(model_path)
 
-        # Load fruit type model
-        self.fruit_type_model = models_data["fruit_type"]["model"]
-        self.fruit_type_scaler = models_data["fruit_type"]["scaler"]
-        self.fruit_type_label_map = models_data["fruit_type"]["label_map"]
+        # Load fruit type model (pipeline)
+        self.fruit_type_model = models_data["fruit_type"]
+        self.fruit_type_label_map = models_data["fruit_type_label_map"]
 
-        # Load freshness models into dictionary structure
-        self.fruit_models["apple"]["model"] = models_data["freshness"]["apple"]["model"]
-        self.fruit_models["apple"]["scaler"] = models_data["freshness"]["apple"]["scaler"]
-
-        self.fruit_models["banana"]["model"] = models_data["freshness"]["banana"]["model"]
-        self.fruit_models["banana"]["scaler"] = models_data["freshness"]["banana"]["scaler"]
-
-        self.fruit_models["orange"]["model"] = models_data["freshness"]["orange"]["model"]
-        self.fruit_models["orange"]["scaler"] = models_data["freshness"]["orange"]["scaler"]
+        # Load freshness models (pipelines)
+        self.fruit_models["apple"] = models_data["freshness"]["apple"]
+        self.fruit_models["banana"] = models_data["freshness"]["banana"]
+        self.fruit_models["orange"] = models_data["freshness"]["orange"]
 
         self.freshness_label_map = models_data["freshness_label_map"]
+
+        # Validate pipelines have predict_proba
+        if not hasattr(self.fruit_type_model, 'predict_proba'):
+            raise ValueError("Fruit type model missing predict_proba")
+        for fruit in self.fruit_models:
+            if not hasattr(self.fruit_models[fruit], 'predict_proba'):
+                raise ValueError(f"{fruit} model missing predict_proba")
 
         self.is_trained = True
         print(f"All models loaded from: {model_path}")
     
-    def predict(self, image_path: str) -> Tuple[str, float]:
+    def predict(self, image_path: str, debug: bool = False) -> Tuple[str, float]:
         """
         Predict freshness of a single image using two-stage approach.
-        
+
         Args:
             image_path: Path to the image file
-            
+            debug: If True, print detailed debug information
+
         Returns:
             Tuple of (predicted_class, freshness_percentage)
         """
         if not self.is_trained:
             raise RuntimeError("Models not trained. Run training first.")
-        
+
         # Extract features
         feature = self.extract_features(image_path)
         feature = feature.reshape(1, -1)
-        
-        # Stage 1: Predict fruit type
-        feature_scaled_ft = self.fruit_type_scaler.transform(feature)
-        fruit_type_prediction = self.fruit_type_model.predict(feature_scaled_ft)[0]
-        fruit_type_probabilities = self.fruit_type_model.predict_proba(feature_scaled_ft)[0]
-        
+
+        if debug:
+            print(f"Absolute image path: {os.path.abspath(image_path)}")
+            img_check = cv2.imread(image_path)
+            if img_check is None:
+                print("cv2.imread() failed")
+            else:
+                print(f"cv2.imread() success, shape: {img_check.shape}")
+            print(f"Feature fingerprint:")
+            print(f"  First 8 values: {feature[0][:8]}")
+            print(f"  Min: {feature.min():.6f}, Max: {feature.max():.6f}, Mean: {feature.mean():.6f}, Std: {feature.std():.6f}")
+            print(f"  L2 norm: {np.linalg.norm(feature):.6f}")
+
+        # Safety check: feature dimension
+        expected_features = self.fruit_type_model.named_steps["scaler"].n_features_in_
+        if feature.shape[1] != expected_features:
+            raise ValueError(f"Feature dimension mismatch: got {feature.shape[1]}, expected {expected_features}")
+
+        # Stage 1: Predict fruit type (pipeline handles scaling)
+        try:
+            fruit_type_prediction = self.fruit_type_model.predict(feature)[0]
+            fruit_type_probabilities = self.fruit_type_model.predict_proba(feature)[0]
+        except Exception as e:
+            print(f"Error in fruit type prediction: {e}")
+            raise
+
+        if debug:
+            print(f"Fruit-type model:")
+            print(f"  predict(): {fruit_type_prediction}")
+            print(f"  predict_proba(): {fruit_type_probabilities}")
+
         # Get fruit type name
         fruit_type_names = {v: k for k, v in self.fruit_type_label_map.items()}
         predicted_fruit_type = fruit_type_names[fruit_type_prediction]
-        
+
+        if debug:
+            print(f"Resolved fruit type: {predicted_fruit_type}")
+            print(f"fruit_type_label_map: {self.fruit_type_label_map}")
+
         print(f"Fruit type: {predicted_fruit_type}")
-        
-        # Stage 2: Predict freshness using fruit-specific model
-        feature_scaled = self.fruit_models[predicted_fruit_type]["scaler"].transform(feature)
-        freshness_model = self.fruit_models[predicted_fruit_type]["model"]
-        
-        # Predict freshness
-        freshness_prediction = freshness_model.predict(feature_scaled)[0]
-        freshness_probabilities = freshness_model.predict_proba(feature_scaled)[0]
-        
+
+        # Stage 2: Predict freshness using fruit-specific model (pipeline handles scaling)
+        try:
+            freshness_prediction = self.fruit_models[predicted_fruit_type].predict(feature)[0]
+            freshness_probabilities = self.fruit_models[predicted_fruit_type].predict_proba(feature)[0]
+        except Exception as e:
+            print(f"Error in freshness prediction: {e}")
+            raise
+
+        if debug:
+            print(f"Freshness model:")
+            print(f"  predict(): {freshness_prediction}")
+            print(f"  predict_proba(): {freshness_probabilities}")
+
         # Get freshness probability (probability of being fresh)
         freshness_prob = freshness_probabilities[1]  # Index 1 corresponds to "fresh" class
         freshness_percentage = freshness_prob * 100
-        
+
         predicted_class = "fresh" if freshness_prediction == 1 else "rotten"
-        
+
         return predicted_class, freshness_percentage
 
 
@@ -535,9 +580,9 @@ Examples:
     # Train command
     train_parser = subparsers.add_parser("train", help="Train the model")
     train_parser.add_argument(
-        "--dataset", 
-        default="./original_data_set",
-        help="Path to dataset directory (default: ./original_data_set)"
+        "--dataset",
+        default="./dataset",
+        help="Path to dataset directory (default: ./dataset)"
     )
     train_parser.add_argument(
         "--model", 
@@ -548,15 +593,23 @@ Examples:
     # Predict command
     predict_parser = subparsers.add_parser("predict", help="Predict freshness of an image")
     predict_parser.add_argument(
-        "--image", 
+        "--image",
         required=True,
         help="Path to the image file to classify"
     )
     predict_parser.add_argument(
-        "--model", 
+        "--model",
         default="./models/svm_freshness.joblib",
         help="Path to the trained model (default: ./models/svm_freshness.joblib)"
     )
+    predict_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug output"
+    )
+
+    # Run diagnostics command
+    diagnostics_parser = subparsers.add_parser("run_diagnostics", help="Run diagnostics on sample images")
     
     args = parser.parse_args()
     
@@ -590,12 +643,47 @@ Examples:
         elif args.command == "predict":
             # Load models
             classifier.load_models(args.model)
-            
+
             # Make prediction
-            predicted_class, freshness_percentage = classifier.predict(args.image)
-            
+            predicted_class, freshness_percentage = classifier.predict(args.image, debug=getattr(args, 'debug', False))
+
             print(f"Predicted: {predicted_class}")
             print(f"Freshness: {freshness_percentage:.2f} %")
+
+        elif args.command == "run_diagnostics":
+            # Load models
+            classifier.load_models("./models/svm_freshness.joblib")
+
+            images = [
+                os.path.expanduser("~/Desktop/banana_fresh.jpg"),
+                os.path.expanduser("~/Desktop/banana_2.jpg"),
+                os.path.expanduser("~/Desktop/raw_banana.jpg"),
+                os.path.expanduser("~/Desktop/orange.jpg")
+            ]
+
+            features_list = []
+            for img in images:
+                print(f"\n=== Diagnostics for {img} ===")
+                try:
+                    predicted_class, freshness_percentage = classifier.predict(img, debug=True)
+                    print(f"Predicted: {predicted_class}")
+                    print(f"Freshness: {freshness_percentage:.2f} %")
+                    # For simplicity, extract feature again for comparison
+                    feature = classifier.extract_features(img)
+                    features_list.append((img, feature))
+                except Exception as e:
+                    print(f"Error predicting {img}: {e}")
+
+            # Compare features
+            print(f"\n=== Feature Vector Comparisons ===")
+            for i in range(len(features_list)):
+                for j in range(i+1, len(features_list)):
+                    img1, feat1 = features_list[i]
+                    img2, feat2 = features_list[j]
+                    l2_dist = np.linalg.norm(feat1 - feat2)
+                    print(f"L2 distance between {os.path.basename(img1)} and {os.path.basename(img2)}: {l2_dist:.6f}")
+                    if l2_dist < 1e-6:
+                        print("WARNING: Feature vectors are nearly identical! Possible bug in feature extraction.")
     
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

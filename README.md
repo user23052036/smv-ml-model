@@ -120,6 +120,7 @@ python run.py predict --image ./path/to/your/image.jpg
 **Optional parameters:**
 - `--image`: Path to the image file to classify (required)
 - `--model`: Path to trained model (default: `./models/svm_freshness.joblib`)
+- `--debug`: Enable detailed debug output (default: False)
 
 **Example:**
 ```bash
@@ -132,6 +133,41 @@ Model loaded from: ./models/svm_freshness.joblib
 Predicted: fresh
 Freshness: 87.45 %
 ```
+
+### Debug Mode
+
+Use the `--debug` flag for detailed inference information:
+
+```bash
+python run.py predict --image ./test_images/apple.jpg --debug
+```
+
+**Debug output includes:**
+- Absolute image path and read status
+- Feature vector fingerprint (first 8 values, statistics, L2 norm)
+- Fruit-type model predictions and probabilities
+- Freshness model predictions and probabilities
+- Label map verification
+
+### Running Diagnostics
+
+Run comprehensive diagnostics on sample images to detect issues:
+
+```bash
+python run.py run_diagnostics
+```
+
+**What it does:**
+- Tests inference on 4 sample images with debug output
+- Compares feature vectors between all image pairs
+- Warns if feature vectors are nearly identical (L2 distance < 1e-6)
+- Helps identify problems with feature extraction or constant predictions
+
+**Sample images tested:**
+- `~/Desktop/banana_fresh.jpg`
+- `~/Desktop/banana_2.jpg`
+- `~/Desktop/raw_banana.jpg`
+- `~/Desktop/orange.jpg`
 
 ## Dataset Requirements
 
