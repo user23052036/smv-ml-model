@@ -1,290 +1,203 @@
-# Fruit Freshness Classifier
+# Fruit Freshness Detection (SVM) — README
 
-A minimal terminal-based machine learning prototype for classifying fruit freshness using Support Vector Machine (SVM) with color histogram features.
+A compact, terminal-first project that classifies fruits (**apple / banana / orange**) and predicts **freshness (fresh / rotten)** using classical computer-vision features and Support Vector Machines (SVM). Designed to run locally (Linux) with a simple CLI.
 
-## Overview
+---
 
-This project automatically classifies fruits as **fresh** or **rotten** using a trained SVM model. The classifier analyzes color histograms from fruit images to determine freshness levels.
+## Quick status
 
-## Features
+* Models: saved to `models/` after training (`fruit_type_svm.joblib`, `freshness_svm.joblib`, `label_encoder.joblib`)
+* CLI: `src/predict_cli.py` — predict a single image from the terminal
+* Eval: `src/evaluate.py` — test set metrics and confusion matrices
+* Core feature extractor: `src/extract_features.py`
 
-- **Simple & Fast**: Minimal dependencies, no GUI, no notebooks
-- **Automatic Labeling**: Fresh/rotten labels determined from folder names
-- **Color + Texture Classification**: Uses HSV color histograms and LBP texture features for improved accuracy
-- **Two-Stage Classification**: First identifies fruit type, then uses fruit-specific freshness models for better accuracy
-- **Intelligent Banana Labeling**: Banana freshness labels are adjusted programmatically to align with human perception
-- **Terminal Interface**: Clean command-line interface with train and predict commands
-- **Model Persistence**: Trained models saved and loaded using joblib
+---
 
-## Project Structure
+## Project layout
 
 ```
-MINI-PROJECT/
-├── original_data_set/        # Existing dataset (DO NOT MODIFY)
-├── run.py                    # Main entry point
-├── requirements.txt          # Python dependencies
-├── README.md                 # This file
-├── models/                   # Auto-created, stores trained model
-└── .venv/                    # Virtual environment
+mini-project/
+├── dataset/
+│   ├── train/
+│   │   ├── apple/            # OR freshapples/  (both formats supported)
+│   │   ├── banana/
+│   │   ├── orange/
+│   │   ├── rottenapples/
+│   │   ├── rottenbanana/
+│   │   └── rottenoranges/
+│   └── test/                 # same rules as train/
+├── models/                   # auto-created by training
+├── src/
+│   ├── extract_features.py
+│   ├── train_svm.py
+│   ├── evaluate.py
+│   ├── predict_cli.py
+│   └── utils.py
+├── requirements.txt
+└── README.md
 ```
 
-## Installation
+> Note: The loader accepts either the **flat** folder convention (`freshapples`, `rottenapples`) or the **hierarchical** one (`apple/fresh`, `apple/rotten`). Both are handled by the training scripts.
 
-### 1. Create Virtual Environment
+---
+
+## Getting started (copy-paste)
 
 ```bash
+# from project root
+cd ~/Desktop/mini-project
+
+# create and activate venv (if not already)
 python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
+source .venv/bin/activate
 
-### 2. Install Dependencies
-
-```bash
+# install dependencies
 pip install -r requirements.txt
 ```
 
-## Usage
+`requirements.txt` should include at least:
 
-### Training the Model
+```
+numpy
+opencv-python
+scikit-learn
+joblib
+tqdm
+matplotlib
+```
 
-Train the SVM model using your dataset:
+---
+
+## Train models
 
 ```bash
-python run.py train
+# trains both fruit-type and freshness SVMs (saves to models/)
+python src/train_svm.py
 ```
 
-**Optional parameters:**
-- `--dataset`: Path to dataset directory (default: `./original_data_set`)
-- `--model`: Path to save trained model (default: `./models/svm_freshness.joblib`)
+What happens:
 
-**Example:**
-```bash
-python run.py train --dataset ./my_dataset --model ./models/my_model.joblib
-```
+* Extracts features from every image in `dataset/train`
+* Encodes fruit labels
+* Runs GridSearchCV (C=[1,10], gamma=['scale','auto']) with StandardScaler + SVC
+* Saves `models/fruit_type_svm.joblib`, `models/freshness_svm.joblib`, `models/label_encoder.joblib`
 
-**Output:**
-```
-Loading dataset from: ./original_data_set
-Processing fresh images from: freshapples
-  Loaded 200 images from freshapples
-Processing fresh images from: freshbanana
-  Loaded 200 images from freshbanana
-Processing fresh images from: freshoranges
-  Loaded 200 images from freshoranges
-Processing rotten images from: rottenapples
-  Loaded 200 images from rottenapples
-Processing rotten images from: rottenbanana
-  Loaded 200 images from rottenbanana
-Processing rotten images from: rottenoranges
-  Loaded 200 images from rottenoranges
+---
 
-Dataset loaded successfully:
-  Total images: 1200
-  Fresh: 600
-  Rotten: 600
-  Unknown: 0
-
-Starting training process...
-
-Train/Test split:
-  Training samples: 960
-  Test samples: 240
-
-Scaling features...
-Training SVM model...
-
-Training completed!
-Test accuracy: 0.9458 (94.58%)
-Model saved to: ./models/svm_freshness.joblib
-
-==================================================
-TRAINING SUMMARY
-==================================================
-Total images processed: 1200
-Fresh images: 600
-Rotten images: 600
-Training samples: 960
-Test samples: 240
-Test accuracy: 0.9458 (94.58%)
-==================================================
-```
-
-### Making Predictions
-
-Predict the freshness of a single image:
+## Evaluate on test set
 
 ```bash
-python run.py predict --image ./path/to/your/image.jpg
+python src/evaluate.py
 ```
 
-**Optional parameters:**
-- `--image`: Path to the image file to classify (required)
-- `--model`: Path to trained model (default: `./models/svm_freshness.joblib`)
-- `--debug`: Enable detailed debug output (default: False)
+Output:
 
-**Example:**
-```bash
-python run.py predict --image ./test_images/apple.jpg --model ./models/my_model.joblib
-```
+* Classification reports (precision/recall/f1)
+* Confusion matrices for fruit and freshness
 
-**Output:**
-```
-Model loaded from: ./models/svm_freshness.joblib
-Predicted: fresh
-Freshness: 87.45 %
-```
+---
 
-### Debug Mode
-
-Use the `--debug` flag for detailed inference information:
+## Predict single image (CLI)
 
 ```bash
-python run.py predict --image ./test_images/apple.jpg --debug
+python src/predict_cli.py --image /full/path/to/image.jpg
 ```
 
-**Debug output includes:**
-- Absolute image path and read status
-- Feature vector fingerprint (first 8 values, statistics, L2 norm)
-- Fruit-type model predictions and probabilities
-- Freshness model predictions and probabilities
-- Label map verification
-
-### Running Diagnostics
-
-Run comprehensive diagnostics on sample images to detect issues:
-
-```bash
-python run.py run_diagnostics
-```
-
-**What it does:**
-- Tests inference on 4 sample images with debug output
-- Compares feature vectors between all image pairs
-- Warns if feature vectors are nearly identical (L2 distance < 1e-6)
-- Helps identify problems with feature extraction or constant predictions
-
-**Sample images tested:**
-- `~/Desktop/banana_fresh.jpg`
-- `~/Desktop/banana_2.jpg`
-- `~/Desktop/raw_banana.jpg`
-- `~/Desktop/orange.jpg`
-
-## Dataset Requirements
-
-### Folder Structure
-
-The dataset should be organized with subfolders containing images:
+Example output:
 
 ```
-dataset_root/
-├── freshapples/
-│   ├── image1.png
-│   ├── image2.png
-│   └── ...
-├── freshbanana/
-├── freshoranges/
-├── rottenapples/
-├── rottenbanana/
-└── rottenoranges/
+Analyzing image: /home/midori/Desktop/orange.jpg
+------------------------------------------------------------
+Fruit: orange (88.41%)
+Freshness score: 76.92% -> FRESH
 ```
 
-### Label Assignment
+Rules:
 
-- **Fresh**: Any folder name containing "fresh" (case-insensitive) → label = 1
-- **Rotten**: Any folder name containing "rotten" (case-insensitive) → label = 0
-- **Unknown**: Folders not matching above patterns are skipped with a warning
+* Fresh if freshness probability ≥ 50% (adjustable in `predict_cli.py`)
+* Predictions include probabilities for transparency
 
-### Image Requirements
+---
 
-- Supported formats: PNG, JPG, JPEG (any format supported by OpenCV)
-- Images are automatically resized to 100x100 pixels
-- Color space converted from BGR to HSV for feature extraction
-- Unreadable images are skipped safely
+## Feature extractor (what it computes)
 
-## Technical Details
+From `src/extract_features.py`:
 
-### Feature Extraction
+* LAB color stats (mean, std for L, a, b) — 6 features
+* BGR means (B, G, R) — 3 features
+* Mean Laplacian (texture) — 1 feature
+* Equivalent diameter (from largest contour area) — 1 feature
+* Final vector length ≈ 11 floats
 
-1. **Image Processing**:
-   - Read image using OpenCV
-   - Resize to 100x100 pixels
-   - Convert BGR → HSV color space
+Segmentation: grayscale → Gaussian blur → Otsu threshold → largest contour (fallback: full image if segmentation fails).
 
-2. **Feature Extraction**:
-   - Extract 3D color histogram
-   - Bins: (8, 8, 8) for H, S, V channels
-   - Normalize histogram
-   - Flatten to feature vector
+---
 
-### Model Architecture
+## Supported dataset folder names
 
-- **Classifier**: `sklearn.svm.SVC`
-  - Kernel: RBF
-  - C: 1.0
-  - Gamma: "scale"
-  - Probability: True
+Your loader accepts:
 
-- **Preprocessing**:
-  - StandardScaler for feature normalization
-  - Train/test split: 80%/20% with stratification
+* Flat naming: `freshapples`, `rottenapples`, `freshbanana`, `rottenbanana`, `freshoranges`, `rottenoranges`
+* Or hierarchical: `apple/fresh`, `apple/rotten`, etc.
 
-- **Model Storage**:
-  ```python
-  {
-    "model": svm_model,
-    "scaler": scaler,
-    "label_map": {"rotten": 0, "fresh": 1}
-  }
-  ```
+If you change folder names, ensure the name contains `fresh`/`rotten` or the fruit name (`apple`, `banana`, `orange`) so the parser can infer both labels.
 
-### Freshness Percentage
-
-The freshness percentage represents the model's confidence that the fruit is fresh:
-
-```
-Freshness % = Probability(fresh) × 100
-```
-
-- **0-50%**: Model predicts rotten (lower values = more confident rotten)
-- **50-100%**: Model predicts fresh (higher values = more confident fresh)
-- **~50%**: Model is uncertain
-
-## Error Handling
-
-- **Model not found**: "Model not trained. Run train first."
-- **Image cannot be read**: Clear error message with file path
-- **Unknown folders**: Warning message, folder skipped
-- **No valid images**: Error with helpful message
-
-## Dependencies
-
-- `numpy`: Numerical operations
-- `opencv-python`: Image processing and feature extraction
-- `scikit-learn`: SVM implementation and preprocessing
-- `joblib`: Model serialization
+---
 
 ## Troubleshooting
 
-### Common Issues
+* `No training images found` → check image extensions (.jpg/.jpeg/.png). Scripts search common extensions.
+* `Model file not found` → run training first; saved models live in `models/`.
+* Low confidence / wrong predictions on web images:
 
-1. **Import errors**: Ensure virtual environment is activated and dependencies installed
-2. **Permission errors**: Check file permissions for dataset and model directories
-3. **Memory issues**: For very large datasets, consider processing in batches
-4. **Poor accuracy**: Verify dataset quality and ensure proper fresh/rotten labeling
+  * Use images with plain background & full fruit
+  * Consider background cropping or more training data
+  * Add `CalibratedClassifierCV` for probability calibration if needed
+* If segmentation fails, feature extractor falls back to the whole image.
 
-### Dataset Problems
+---
 
-- **Mixed labels in folders**: Ensure each folder contains only fresh OR rotten images
-- **Corrupted images**: Use image validation tools to check dataset integrity
-- **Imbalanced classes**: Model handles stratification automatically
+## How to improve (quick path)
 
-## Performance Notes
+* Add more training images (best impact)
+* Add simple augmentations (flip, rotate, color jitter)
+* Add HSV features or GLCM texture for extra discriminative power
+* Use per-fruit freshness classifiers (apple-specific, banana-specific)
+* Apply probability calibration (Platt scaling / isotonic)
 
-- **Training time**: Depends on dataset size, typically seconds to minutes
-- **Prediction time**: Very fast, milliseconds per image
-- **Memory usage**: Scales with dataset size during training, minimal during prediction
-- **Accuracy**: Depends on dataset quality, typically 85-95% for well-labeled datasets
+---
 
-## License
+## License & citation
 
-This project is provided as-is for educational and prototyping purposes.
+This work and the dataset (if you publish it) can be released under **CC0 1.0** (public domain) or choose another license in `dataset-metadata.json`.
+If you use this dataset in a paper, cite as:
+
+```
+user2036. Fruit Freshness Dataset (Apple, Banana, Orange). Kaggle (year).
+```
+
+---
+
+## Contact / contributions
+
+* If you find a bug or want assistance, open an issue in the project repo or message `user2036` on Kaggle.
+* Pull requests and improvements (feature additions, better segmentation, calibration) are welcome.
+
+---
+
+## Short checklist before submission / demo
+
+* [ ] Models trained and saved to `models/`
+* [ ] `evaluate.py` shows acceptable accuracy on `dataset/test`
+* [ ] README updated (this file)
+* [ ] `dataset/` structured and referenced correctly in `dataset-metadata.json`
+* [ ] If publishing dataset: confirm `dataset-metadata.json` and set dataset to **Public** on Kaggle
+
+---
+
+If you want, I will now:
+
+* produce a **short abstract (3–4 lines)** for the Kaggle description (summary)
+* or a **one-page project report** for submission (PDF-ready)
+
+Tell me which and I’ll output it exactly.
