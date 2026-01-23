@@ -1,15 +1,46 @@
-# Fruit Freshness Detection (SVM) — README
 
-A compact, terminal-first project that classifies fruits (**apple / banana / orange**) and predicts **freshness (fresh / rotten)** using classical computer-vision features and Support Vector Machines (SVM). Designed to run locally (Linux) with a simple CLI.
+# Fruit Freshness Detection (SVM)
+
+A compact, terminal-first project that classifies fruit type (`apple`, `banana`, `orange`) and predicts freshness (`fresh` / `rotten`) using handcrafted computer-vision features and Support Vector Machines (SVM). The system is designed to run locally (Linux) using Python and provides CLI utilities for training, evaluation, and prediction.
 
 ---
 
-## Quick status
+## Highlights
 
-* Models: saved to `models/` after training (`fruit_type_svm.joblib`, `freshness_svm.joblib`, `label_encoder.joblib`)
-* CLI: `src/predict_cli.py` — predict a single image from the terminal
-* Eval: `src/evaluate.py` — test set metrics and confusion matrices
-* Core feature extractor: `src/extract_features.py`
+* Lightweight, CPU-friendly pipeline — no deep learning required
+* Interpretable 30-dimensional handcrafted feature vector
+* Two SVM classifiers:
+
+  * Fruit type classifier (apple / banana / orange)
+  * Freshness classifier (fresh / rotten)
+* Reproducible training, evaluation, and CLI prediction
+
+---
+
+## Status / Artifacts
+
+* Trained models:
+
+  * `models/fruit_type_svm.joblib`
+  * `models/freshness_svm.joblib`
+  * `models/label_encoder.joblib`
+* Frozen feature schema:
+
+  * `models/feature_schema.json`
+* Evaluation outputs:
+
+  * `models/confusion_matrix_fruit.png`
+  * `models/confusion_matrix_freshness.png`
+
+### Confusion matrices
+
+**Fruit classification**
+
+![Fruit Confusion Matrix](models/confusion_matrix_fruit.png)
+
+**Freshness classification**
+
+![Freshness Confusion Matrix](models/confusion_matrix_freshness.png)
 
 ---
 
@@ -18,151 +49,161 @@ A compact, terminal-first project that classifies fruits (**apple / banana / ora
 ```
 mini-project/
 ├── dataset/
-│   ├── train/
-│   │   ├── apple/            # OR freshapples/  (both formats supported)
-│   │   ├── banana/
-│   │   ├── orange/
-│   │   ├── rottenapples/
-│   │   ├── rottenbanana/
-│   │   └── rottenoranges/
-│   └── test/                 # same rules as train/
-├── models/                   # auto-created by training
+│     ├── train/
+│     └── test/
+|
+├── models/
+│     ├── feature_schema.json
+│     ├── fruit_type_svm.joblib
+│     |── freshness_svm.joblib
+│     ├── label_encoder.joblib
+│     └── confusion_matrix_*.png
+|
 ├── src/
-│   ├── extract_features.py
-│   ├── train_svm.py
-│   ├── evaluate.py
-│   ├── predict_cli.py
-│   └── utils.py
+│     ├── extract_features.py
+│     ├── train_svm.py
+│     ├── evaluate.py
+│     ├── predict_cli.py
+│     ├── save_feature_schema.py
+│     └── utils.py
+|
 ├── requirements.txt
 └── README.md
 ```
 
-> Note: The loader accepts either the **flat** folder convention (`freshapples`, `rottenapples`) or the **hierarchical** one (`apple/fresh`, `apple/rotten`). Both are handled by the training scripts.
+> The loader supports both flat folder naming (e.g. `rottenapples`) and hierarchical naming (`apple/rotten`) as long as fruit and freshness keywords are present.
 
 ---
 
-## Getting started (copy-paste)
+## Setup
 
-```bash
-# from project root
-cd ~/Desktop/mini-project
+From the project root:
 
-# create and activate venv (if not already)
+```
 python3 -m venv .venv
 source .venv/bin/activate
-
-# install dependencies
 pip install -r requirements.txt
 ```
 
-`requirements.txt` should include at least:
+Required dependencies include:
 
-```
-numpy
-opencv-python
-scikit-learn
-joblib
-tqdm
-matplotlib
-```
+* numpy
+* opencv-python
+* scikit-learn
+* scikit-image
+* scipy
+* joblib
+* matplotlib
 
 ---
 
-## Train models
+## Training
 
-```bash
-# trains both fruit-type and freshness SVMs (saves to models/)
+Train both classifiers (fruit type and freshness):
+
+```
 python src/train_svm.py
 ```
 
-What happens:
+What happens internally:
 
-* Extracts features from every image in `dataset/train`
-* Encodes fruit labels
-* Runs GridSearchCV (C=[1,10], gamma=['scale','auto']) with StandardScaler + SVC
-* Saves `models/fruit_type_svm.joblib`, `models/freshness_svm.joblib`, `models/label_encoder.joblib`
+* Feature extraction from `dataset/train`
+* Label encoding for fruit classes
+* GridSearchCV over SVM (RBF kernel) with StandardScaler
+* Best models saved to `models/`
 
 ---
 
-## Evaluate on test set
+## Evaluation
 
-```bash
+Run evaluation on the test split:
+
+```
 python src/evaluate.py
 ```
 
-Output:
+Outputs:
 
-* Classification reports (precision/recall/f1)
-* Confusion matrices for fruit and freshness
+* Precision / recall / F1-score reports
+* Confusion matrices printed to console
+* Confusion matrix images saved for documentation
 
 ---
 
-## Predict single image (CLI)
+## Prediction (CLI)
 
-```bash
+Predict a single image:
+
+```
 python src/predict_cli.py --image /full/path/to/image.jpg
 ```
 
-Example output:
+Example:
 
-```
-Analyzing image: /home/midori/Desktop/orange.jpg
-------------------------------------------------------------
+Analyzing image: /home/user/orange.jpg
 Fruit: orange (88.41%)
-Freshness score: 76.92% -> FRESH
-```
+Freshness score: 76.92% → FRESH
 
-Rules:
-
-* Fresh if freshness probability ≥ 50% (adjustable in `predict_cli.py`)
-* Predictions include probabilities for transparency
+Freshness threshold defaults to 50% and can be adjusted in `predict_cli.py`.
 
 ---
 
-## Feature extractor (what it computes)
+## Feature extraction (frozen schema)
 
-From `src/extract_features.py`:
+The system uses a fixed 30-feature vector. The exact order is saved in `models/feature_schema.json` and must not be changed without retraining.
 
-* LAB color stats (mean, std for L, a, b) — 6 features
-* BGR means (B, G, R) — 3 features
-* Mean Laplacian (texture) — 1 feature
-* Equivalent diameter (from largest contour area) — 1 feature
-* Final vector length ≈ 11 floats
+Feature categories:
 
-Segmentation: grayscale → Gaussian blur → Otsu threshold → largest contour (fallback: full image if segmentation fails).
+* **Color**
 
----
+  * RGB mean & standard deviation
+  * HSV circular mean & std
+  * LAB mean & std
+* **Texture**
 
-## Supported dataset folder names
+  * Laplacian variance
+  * GLCM contrast, energy, homogeneity
+  * Grayscale entropy
+* **Shape**
 
-Your loader accepts:
+  * Area, perimeter
+  * Circularity, solidity
+  * Aspect ratio, extent
+* **Decay**
 
-* Flat naming: `freshapples`, `rottenapples`, `freshbanana`, `rottenbanana`, `freshoranges`, `rottenoranges`
-* Or hierarchical: `apple/fresh`, `apple/rotten`, etc.
+  * Dark pixel ratio
 
-If you change folder names, ensure the name contains `fresh`/`rotten` or the fruit name (`apple`, `banana`, `orange`) so the parser can infer both labels.
-
----
-
-## Troubleshooting
-
-* `No training images found` → check image extensions (.jpg/.jpeg/.png). Scripts search common extensions.
-* `Model file not found` → run training first; saved models live in `models/`.
-* Low confidence / wrong predictions on web images:
-
-  * Use images with plain background & full fruit
-  * Consider background cropping or more training data
-  * Add `CalibratedClassifierCV` for probability calibration if needed
-* If segmentation fails, feature extractor falls back to the whole image.
+This design balances interpretability and performance without deep learning.
 
 ---
 
-## How to improve (quick path)
+## Segmentation approach
 
-* Add more training images (best impact)
-* Add simple augmentations (flip, rotate, color jitter)
-* Add HSV features or GLCM texture for extra discriminative power
-* Use per-fruit freshness classifiers (apple-specific, banana-specific)
-* Apply probability calibration (Platt scaling / isotonic)
+* Convert to grayscale
+* Gaussian blur
+* Otsu thresholding
+* Largest contour selected as fruit mask
+
+If segmentation fails, the extractor falls back to whole-image statistics (lower confidence, but no crash).
+
+---
+
+## Performance (current split)
+
+* Fruit classification accuracy: ~98%
+* Freshness classification accuracy: ~96%
+
+Results depend on dataset quality and lighting conditions.
+
+---
+
+## Limitations & failure modes
+
+* Background similarity can break segmentation
+* Strong lighting color casts affect color features
+* Very early decay may be visually indistinguishable
+* Dataset leakage can inflate metrics if not careful
+
+These limitations are documented and expected for classical CV systems.
 
 ---

@@ -1,3 +1,4 @@
+# src/predict_cli.py
 import argparse
 import os
 import numpy as np
@@ -16,7 +17,8 @@ def predict(image_path):
     fruit_model = load_model(os.path.join(MODEL_DIR, "fruit_type_svm.joblib"))
     fresh_model = load_model(os.path.join(MODEL_DIR, "freshness_svm.joblib"))
 
-    features = extract_features(image_path).reshape(1, -1)
+    features, _ = extract_features(image_path)      # <-- unpack
+    features = features.reshape(1, -1)
 
     # Fruit prediction
     fruit_probs = fruit_model.predict_proba(features)[0]

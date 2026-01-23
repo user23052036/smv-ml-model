@@ -1,3 +1,4 @@
+# src/train_svm.py
 import os
 import glob
 import numpy as np
@@ -13,16 +14,13 @@ MODEL_DIR = "models"
 
 def parse_folder(folder):
     folder = folder.lower()
-
     if folder in ["apple", "banana", "orange"]:
         return folder, "fresh"
-
     if folder.startswith("rotten"):
         fruit = folder.replace("rotten", "")
         if fruit.endswith("s"):
             fruit = fruit[:-1]
         return fruit, "rotten"
-
     return None, None
 
 def get_images(path):
@@ -46,22 +44,32 @@ def load_dataset():
         images = get_images(folder_path)
         for img in images:
             try:
-                feats = extract_features(img)
+                feats, _ = extract_features(img)          # <-- unpack tuple (fv, names)
                 X.append(feats)
                 y_fruit.append(fruit)
                 y_fresh.append(1 if freshness == "fresh" else 0)
             except Exception as e:
                 print(f"[WARN] Skipping {img}: {e}")
 
-    return np.array(X), np.array(y_fruit), np.array(y_fresh)
+    if len(X) == 0:
+        return np.array([]), np.array([]), np.array([])
+
+    # Validate all feature lengths are identical
+    lengths = [f.shape[0] for f in X]
+    if len(set(lengths)) != 1:
+        raise RuntimeError(f"Feature length mismatch across samples: {set(lengths)}. "
+                           "Ensure extract_features returns consistent length for all images.")
+
+    X_arr = np.vstack(X).astype(np.float32)
+    return X_arr, np.array(y_fruit), np.array(y_fresh)
 
 if __name__ == "__main__":
     print("[INFO] Loading training data...")
     X, y_fruit, y_fresh = load_dataset()
-    print("[INFO] Samples loaded:", len(X))
+    print("[INFO] Samples loaded:", 0 if X.size == 0 else len(X))
 
-    if len(X) == 0:
-        raise RuntimeError("No training images found. Check dataset folders.")
+    if X.size == 0:
+        raise RuntimeError("No training images found or no valid features extracted. Check dataset folders and extractor.")
 
     os.makedirs(MODEL_DIR, exist_ok=True)
 
