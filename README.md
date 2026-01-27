@@ -1,209 +1,294 @@
 
-# Fruit Freshness Detection (SVM)
+# Fruit Freshness Detection using Classical Computer Vision & SVM
 
-A compact, terminal-first project that classifies fruit type (`apple`, `banana`, `orange`) and predicts freshness (`fresh` / `rotten`) using handcrafted computer-vision features and Support Vector Machines (SVM). The system is designed to run locally (Linux) using Python and provides CLI utilities for training, evaluation, and prediction.
+A **classical computer vision + machine learning** project that classifies **fruit type** (`apple`, `banana`, `orange`) and predicts **freshness** (`fresh` / `rotten`) using a **handcrafted feature pipeline** and **Support Vector Machines (SVM)**.
 
----
-
-## Highlights
-
-* Lightweight, CPU-friendly pipeline — no deep learning required
-* Interpretable 30-dimensional handcrafted feature vector
-* Two SVM classifiers:
-
-  * Fruit type classifier (apple / banana / orange)
-  * Freshness classifier (fresh / rotten)
-* Reproducible training, evaluation, and CLI prediction
+This project intentionally avoids deep learning to emphasize **interpretability**, **data discipline**, and **reproducibility**.
 
 ---
 
-## Status / Artifacts
+## 🔗 Dataset (Kaggle)
 
-* Trained models:
+**Fruit Freshness Dataset (Apple, Banana, Orange)**
+👉 [https://www.kaggle.com/datasets/user2036/fruit-freshness-dataset-v1](https://www.kaggle.com/datasets/user2036/fruit-freshness-dataset-v1)
 
-  * `models/fruit_type_svm.joblib`
-  * `models/freshness_svm.joblib`
-  * `models/label_encoder.joblib`
-* Frozen feature schema:
+### Current dataset version: **v2**
 
-  * `models/feature_schema.json`
-* Evaluation outputs:
+* Removed **exact duplicates** (file hash)
+* Removed **perceptual duplicates** (pHash)
+* Verified **no train–test leakage**
+* Cleaned, frozen, and versioned dataset
 
-  * `models/confusion_matrix_fruit.png`
-  * `models/confusion_matrix_freshness.png`
-
-### Confusion matrices
-
-**Fruit classification**
-
-![Fruit Confusion Matrix](models/confusion_matrix_fruit.png)
-
-**Freshness classification**
-
-![Freshness Confusion Matrix](models/confusion_matrix_freshness.png)
+> All experiments and results in this repository are based strictly on **Kaggle v2**.
 
 ---
 
-## Project layout
+## Key Highlights
+
+* Fully **CPU-friendly** (no GPU, no CNNs)
+* **30-dimensional interpretable handcrafted feature vector**
+* Two independent SVM classifiers:
+
+  * **Fruit classifier** → apple / banana / orange
+  * **Freshness classifier** → fresh / rotten
+* Explicit **dataset sanitation pipeline**
+* **Stratified K-Fold cross-validation**
+* **Learning curve analysis**
+* CLI-based training, evaluation, and prediction
+
+---
+
+## Final Project Structure (Accurate)
 
 ```
 mini-project/
+├── clean_dataset/
+│   ├── find_image_duplicates.py
+│   ├── keep_best_train_duplicates.py
+│   └── move_test_leaks.py
+│
 ├── dataset/
-│     ├── train/
-│     └── test/
-|
+│   ├── train/
+│   │   ├── apple/
+│   │   ├── banana/
+│   │   ├── orange/
+│   │   ├── rottenapples/
+│   │   ├── rottenbanana/
+│   │   └── rottenoranges/
+│   ├── test/
+│   │   └── (same structure as train)
+│   └── dataset-metadata.json
+│
+├── duplicates/
+│   ├── leak_groups/
+│   ├── train_groups/
+│   ├── post_clean_check/
+│   └── duplicate_report.csv
+│
 ├── models/
-│     ├── feature_schema.json
-│     ├── fruit_type_svm.joblib
-│     |── freshness_svm.joblib
-│     ├── label_encoder.joblib
-│     └── confusion_matrix_*.png
-|
+│   ├── fruit_type_svm.joblib
+│   ├── freshness_svm.joblib
+│   ├── label_encoder.joblib
+│   ├── feature_schema.json
+│   ├── confusion_matrix_fruit.png
+│   ├── confusion_matrix_freshness.png
+│   └── learning_curve.png
+│
 ├── src/
-│     ├── extract_features.py
-│     ├── train_svm.py
-│     ├── evaluate.py
-│     ├── predict_cli.py
-│     ├── save_feature_schema.py
-│     └── utils.py
-|
+│   ├── extract_features.py
+│   ├── train_svm.py
+│   ├── evaluate.py
+│   ├── cross_validation.py
+│   ├── learning_curve.py
+│   ├── predict_cli.py
+│   ├── save_feature_schema.py
+│   └── utils.py
+│
+├── dataset_snapshot.txt
 ├── requirements.txt
 └── README.md
 ```
 
-> The loader supports both flat folder naming (e.g. `rottenapples`) and hierarchical naming (`apple/rotten`) as long as fruit and freshness keywords are present.
+---
+
+## Dataset Freezing & Integrity
+
+* `dataset_snapshot.txt` records the **exact directory structure**
+* Duplicate detection performed using:
+
+  * **File hash** → exact duplicates
+  * **Perceptual hash (pHash)** → near-duplicates
+* Post-clean verification confirms:
+
+  * ✅ No remaining duplicates
+  * ✅ No train–test leakage
+* Dataset is treated as **read-only** after freezing
 
 ---
 
-## Setup
+## Feature Extraction (Frozen Schema)
 
-From the project root:
+The system uses a **fixed 30-feature vector**, stored in:
 
 ```
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+models/feature_schema.json
 ```
 
-Required dependencies include:
+### Feature categories
 
-* numpy
-* opencv-python
-* scikit-learn
-* scikit-image
-* scipy
-* joblib
-* matplotlib
+**Color**
+
+* RGB mean & standard deviation
+* HSV circular mean & std
+* LAB mean & std
+
+**Texture**
+
+* Laplacian variance
+* GLCM contrast, energy, homogeneity
+* Grayscale entropy
+
+**Shape**
+
+* Area, perimeter
+* Circularity, solidity
+* Aspect ratio, extent
+
+**Decay**
+
+* Dark pixel ratio
+
+⚠️ Feature order and definitions must not be changed without retraining.
+
+---
+
+## Segmentation Strategy
+
+1. Convert to grayscale
+2. Gaussian blur
+3. Otsu thresholding
+4. Largest contour selected as fruit mask
+
+If segmentation fails, the pipeline **falls back to whole-image statistics** to avoid crashes.
 
 ---
 
 ## Training
 
-Train both classifiers (fruit type and freshness):
-
-```
+```bash
 python src/train_svm.py
 ```
 
-What happens internally:
+**Training set size:** 9,453 images
+
+What happens:
 
 * Feature extraction from `dataset/train`
 * Label encoding for fruit classes
-* GridSearchCV over SVM (RBF kernel) with StandardScaler
+* GridSearchCV with RBF-kernel SVM
 * Best models saved to `models/`
 
 ---
 
 ## Evaluation
 
-Run evaluation on the test split:
-
-```
+```bash
 python src/evaluate.py
 ```
 
-Outputs:
+**Test set size:** 1,879 images
 
-* Precision / recall / F1-score reports
-* Confusion matrices printed to console
-* Confusion matrix images saved for documentation
+### Fruit classification
+
+* Accuracy: **97.98%**
+* Macro F1: **0.98**
+![Fruit Classification Confusion Matrix](models/confusion_matrix_fruit.png)
+
+
+### Freshness classification
+
+* Accuracy: **96.17%**
+* Macro F1: **0.96**
+![Freshness Classification Confusion Matrix](models/confusion_matrix_freshness.png)
+
+
+Confusion matrices are saved to:
+
+```
+models/confusion_matrix_fruit.png
+models/confusion_matrix_freshness.png
+```
+
+---
+
+## Cross-Validation
+
+```bash
+python src/cross_validation.py
+```
+
+* **Stratified 5-Fold CV** on training data
+* Mean accuracy: **97.45%**
+* Standard deviation: **0.0036**
+
+This confirms **model stability** and absence of data leakage.
+
+---
+
+## Learning Curve
+
+```bash
+python src/learning_curve.py
+```
+
+Generates:
+
+
+**Learning Curve (SVM)**
+
+![Learning Curve](models/learning_curve.png)
+
+
+Observations:
+
+* Validation accuracy plateaus after ~60% data
+* Removing ~2,000 duplicates **did not reduce performance**
+* Confirms dataset is **information-sufficient**, not overfitted
 
 ---
 
 ## Prediction (CLI)
 
-Predict a single image:
-
-```
-python src/predict_cli.py --image /full/path/to/image.jpg
+```bash
+python src/predict_cli.py --image /absolute/path/to/image.jpg
 ```
 
-Example:
+Example outputs:
 
-Analyzing image: /home/user/orange.jpg
-Fruit: orange (88.41%)
-Freshness score: 76.92% → FRESH
+```
+Fruit: banana (88.80%)
+Freshness score: 68.79% → FRESH
+```
 
-Freshness threshold defaults to 50% and can be adjusted in `predict_cli.py`.
+```
+Fruit: apple (99.88%)
+Freshness score: 0.01% → ROTTEN
+```
 
----
-
-## Feature extraction (frozen schema)
-
-The system uses a fixed 30-feature vector. The exact order is saved in `models/feature_schema.json` and must not be changed without retraining.
-
-Feature categories:
-
-* **Color**
-
-  * RGB mean & standard deviation
-  * HSV circular mean & std
-  * LAB mean & std
-* **Texture**
-
-  * Laplacian variance
-  * GLCM contrast, energy, homogeneity
-  * Grayscale entropy
-* **Shape**
-
-  * Area, perimeter
-  * Circularity, solidity
-  * Aspect ratio, extent
-* **Decay**
-
-  * Dark pixel ratio
-
-This design balances interpretability and performance without deep learning.
+The CLI reports **class probabilities**, not just labels.
 
 ---
 
-## Segmentation approach
+## Performance Summary (Clean Dataset)
 
-* Convert to grayscale
-* Gaussian blur
-* Otsu thresholding
-* Largest contour selected as fruit mask
+| Task                     | Accuracy |
+| ------------------------ | -------- |
+| Fruit classification     | ~98%     |
+| Freshness classification | ~96%     |
 
-If segmentation fails, the extractor falls back to whole-image statistics (lower confidence, but no crash).
-
----
-
-## Performance (current split)
-
-* Fruit classification accuracy: ~98%
-* Freshness classification accuracy: ~96%
-
-Results depend on dataset quality and lighting conditions.
+Results remain **stable after duplicate removal**, validating dataset quality.
 
 ---
 
-## Limitations & failure modes
+## Known Limitations
 
-* Background similarity can break segmentation
-* Strong lighting color casts affect color features
-* Very early decay may be visually indistinguishable
-* Dataset leakage can inflate metrics if not careful
+* White-background bias in dataset
+* Sensitivity to lighting and color casts
+* Early decay can be visually subtle
+* Classical CV has a bounded ceiling vs deep learning
 
-These limitations are documented and expected for classical CV systems.
+These are **expected, documented trade-offs**, not bugs.
+
+---
+
+## Why Classical CV + SVM?
+
+This project prioritizes:
+
+* Interpretability over raw accuracy
+* Data discipline over brute force
+* Reproducibility over black-box models
+
+It is designed as a **strong baseline** and an **educational reference**.
 
 ---
