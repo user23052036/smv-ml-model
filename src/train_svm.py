@@ -2,6 +2,7 @@
 import os
 import glob
 import numpy as np
+from typing import Tuple, List
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.svm import SVC
@@ -29,7 +30,15 @@ def get_images(path):
         imgs.extend(glob.glob(os.path.join(path, ext)))
     return imgs
 
-def load_dataset():
+def load_dataset() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Load training dataset.
+    
+    Returns:
+        X: Feature matrix of shape (n_samples, n_features) with dtype float32
+        y_fruit: Fruit labels as strings
+        y_fresh: Freshness labels as integers (1 for fresh, 0 for rotten)
+    """
     X, y_fruit, y_fresh = [], [], []
 
     for folder in os.listdir(DATA_DIR):
